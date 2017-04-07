@@ -567,9 +567,7 @@ class RNNCell(object):
 class BasicRNNCell(RNNCell):
   """The most basic RNN cell."""
 
-  def __init__(self, num_units, input_size=None, activation=tanh, reuse=None):
-    if input_size is not None:
-      logging.warn("%s: The input_size parameter is deprecated.", self)
+  def __init__(self, num_units, activation=tanh, reuse=None):
     self._num_units = num_units
     self._activation = activation
     self._reuse = reuse
@@ -584,7 +582,7 @@ class BasicRNNCell(RNNCell):
 
   def __call__(self, inputs, state, scope=None):
     """Most basic RNN: output = new_state = act(W * input + U * state + B)."""
-    #with _checked_scope(self, scope or "basic_rnn_cell", reuse=self._reuse):
+    """ U is W.hh in karpathy's code ???"""
     output = self._activation(_linear([inputs, state], self._num_units, True))
     return output, output
 
