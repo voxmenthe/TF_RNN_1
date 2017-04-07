@@ -152,167 +152,6 @@ def _zero_state_tensors(state_size, batch_size, dtype):
 
   return zeros
 
-
-class RNNCell(object):
-  """Abstract object representing an RNN cell.
-  Every `RNNCell` must have the properties below and implement `__call__` with
-  the following signature.
-  This definition of cell differs from the definition used in the literature.
-  In the literature, 'cell' refers to an object with a single scalar output.
-  This definition refers to a horizontal array of such units.
-  An RNN cell, in the most abstract setting, is anything that has
-  a state and performs some operation that takes a matrix of inputs.
-  This operation results in an output matrix with `self.output_size` columns.
-  If `self.state_size` is an integer, this operation also results in a new
-  state matrix with `self.state_size` columns.  If `self.state_size` is a
-  tuple of integers, then it results in a tuple of `len(state_size)` state
-  matrices, each with a column size corresponding to values in `state_size`.
-  """
-
-  def __call__(self, inputs, state, scope=None):
-    """Run this RNN cell on inputs, starting from the given state.
-    Args:
-      inputs: `2-D` tensor with shape `[batch_size x input_size]`.
-      state: if `self.state_size` is an integer, this should be a `2-D Tensor`
-        with shape `[batch_size x self.state_size]`.  Otherwise, if
-        `self.state_size` is a tuple of integers, this should be a tuple
-        with shapes `[batch_size x s] for s in self.state_size`.
-      scope: VariableScope for the created subgraph; defaults to class name.
-    Returns:
-      A pair containing:
-      - Output: A `2-D` tensor with shape `[batch_size x self.output_size]`.
-      - New state: Either a single `2-D` tensor, or a tuple of tensors matching
-        the arity and shapes of `state`.
-    """
-    raise NotImplementedError("Abstract method")
-
-  @property
-  def state_size(self):
-    """size(s) of state(s) used by this cell.
-    It can be represented by an Integer, a TensorShape or a tuple of Integers
-    or TensorShapes.
-    """
-    raise NotImplementedError("Abstract method")
-
-  @property
-  def output_size(self):
-    """Integer or TensorShape: size of outputs produced by this cell."""
-    raise NotImplementedError("Abstract method")
-
-  def zero_state(self, batch_size, dtype):
-    """Return zero-filled state tensor(s).
-    Args:
-      batch_size: int, float, or unit Tensor representing the batch size.
-      dtype: the data type to use for the state.
-    Returns:
-      If `state_size` is an int or TensorShape, then the return value is a
-      `N-D` tensor of shape `[batch_size x state_size]` filled with zeros.
-      If `state_size` is a nested list or tuple, then the return value is
-      a nested list or tuple (of the same structure) of `2-D` tensors with
-      the shapes `[batch_size x s]` for each s in `state_size`.
-    """
-    with ops.name_scope(type(self).__name__ + "ZeroState", values=[batch_size]):
-      state_size = self.state_size
-      return _zero_state_tensors(state_size, batch_size, dtype)
-
-
-class BasicRNNCell(RNNCell):
-  """The most basic RNN cell."""
-
-  def __init__(self, num_units, input_size=None, activation=tanh, reuse=None):
-    if input_size is not None:
-      logging.warn("%s: The input_size parameter is deprecated.", self)
-    self._num_units = num_units
-    self._activation = activation
-    self._reuse = reuse
-
-  @property
-  def state_size(self):
-    return self._num_units
-
-  @property
-  def output_size(self):
-    return self._num_units
-
-  def __call__(self, inputs, state, scope=None):
-    """Most basic RNN: output = new_state = act(W * input + U * state + B)."""
-    #with _checked_scope(self, scope or "basic_rnn_cell", reuse=self._reuse):
-    output = self._activation(_linear([inputs, state], self._num_units, True))
-    return output, output
-
-class MultiRNNCell(RNNCell):
-  """RNN cell composed sequentially of multiple simple cells."""
-
-  def __init__(self, cells, state_is_tuple=True):
-    """Create a RNN cell composed sequentially of a number of RNNCells.
-    Args:
-      cells: list of RNNCells that will be composed in this order.
-      state_is_tuple: If True, accepted and returned states are n-tuples, where
-        `n = len(cells)`.  If False, the states are all
-        concatenated along the column axis.  This latter behavior will soon be
-        deprecated.
-    Raises:
-      ValueError: if cells is empty (not allowed), or at least one of the cells
-        returns a state tuple but the flag `state_is_tuple` is `False`.
-    """
-    if not cells:
-      raise ValueError("Must specify at least one cell for MultiRNNCell.")
-    if not nest.is_sequence(cells):
-      raise TypeError(
-          "cells must be a list or tuple, but saw: %s." % cells)
-
-    self._cells = cells
-    self._state_is_tuple = state_is_tuple
-    if not state_is_tuple:
-      if any(nest.is_sequence(c.state_size) for c in self._cells):
-        raise ValueError("Some cells return tuples of states, but the flag "
-                         "state_is_tuple is not set.  State sizes are: %s"
-                         % str([c.state_size for c in self._cells]))
-
-  @property
-  def state_size(self):
-    if self._state_is_tuple:
-      return tuple(cell.state_size for cell in self._cells)
-    else:
-      return sum([cell.state_size for cell in self._cells])
-
-  @property
-  def output_size(self):
-    return self._cells[-1].output_size
-
-  def zero_state(self, batch_size, dtype):
-    with ops.name_scope(type(self).__name__ + "ZeroState", values=[batch_size]):
-      if self._state_is_tuple:
-        return tuple(cell.zero_state(batch_size, dtype) for cell in self._cells)
-      else:
-        # We know here that state_size of each cell is not a tuple and
-        # presumably does not contain TensorArrays or anything else fancy
-        return super(MultiRNNCell, self).zero_state(batch_size, dtype)
-
-  def __call__(self, inputs, state, scope=None):
-    """Run this multi-layer cell on inputs, starting from state."""
-    with vs.variable_scope(scope or "multi_rnn_cell"):
-      cur_state_pos = 0
-      cur_inp = inputs
-      new_states = []
-      for i, cell in enumerate(self._cells):
-        with vs.variable_scope("cell_%d" % i):
-          if self._state_is_tuple:
-            if not nest.is_sequence(state):
-              raise ValueError(
-                  "Expected state to be a tuple of length %d, but received: %s"
-                  % (len(self.state_size), state))
-            cur_state = state[i]
-          else:
-            cur_state = array_ops.slice(
-                state, [0, cur_state_pos], [-1, cell.state_size])
-            cur_state_pos += cell.state_size
-          cur_inp, new_state = cell(cur_inp, cur_state)
-          new_states.append(new_state)
-    new_states = (tuple(new_states) if self._state_is_tuple else
-                  array_ops.concat(new_states, 1))
-    return cur_inp, new_states
-
 def dynamic_rnn(cell, inputs, sequence_length=None, initial_state=None,
                 dtype=None, parallel_iterations=None, swap_memory=False,
                 time_major=False, scope=None):
@@ -659,4 +498,166 @@ def _dynamic_rnn_loop(cell,
       structure=cell.output_size, flat_sequence=final_outputs)
 
   return (final_outputs, final_state)
+
+
+
+class RNNCell(object):
+  """Abstract object representing an RNN cell.
+  Every `RNNCell` must have the properties below and implement `__call__` with
+  the following signature.
+  This definition of cell differs from the definition used in the literature.
+  In the literature, 'cell' refers to an object with a single scalar output.
+  This definition refers to a horizontal array of such units.
+  An RNN cell, in the most abstract setting, is anything that has
+  a state and performs some operation that takes a matrix of inputs.
+  This operation results in an output matrix with `self.output_size` columns.
+  If `self.state_size` is an integer, this operation also results in a new
+  state matrix with `self.state_size` columns.  If `self.state_size` is a
+  tuple of integers, then it results in a tuple of `len(state_size)` state
+  matrices, each with a column size corresponding to values in `state_size`.
+  """
+
+  def __call__(self, inputs, state, scope=None):
+    """Run this RNN cell on inputs, starting from the given state.
+    Args:
+      inputs: `2-D` tensor with shape `[batch_size x input_size]`.
+      state: if `self.state_size` is an integer, this should be a `2-D Tensor`
+        with shape `[batch_size x self.state_size]`.  Otherwise, if
+        `self.state_size` is a tuple of integers, this should be a tuple
+        with shapes `[batch_size x s] for s in self.state_size`.
+      scope: VariableScope for the created subgraph; defaults to class name.
+    Returns:
+      A pair containing:
+      - Output: A `2-D` tensor with shape `[batch_size x self.output_size]`.
+      - New state: Either a single `2-D` tensor, or a tuple of tensors matching
+        the arity and shapes of `state`.
+    """
+    raise NotImplementedError("Abstract method")
+
+  @property
+  def state_size(self):
+    """size(s) of state(s) used by this cell.
+    It can be represented by an Integer, a TensorShape or a tuple of Integers
+    or TensorShapes.
+    """
+    raise NotImplementedError("Abstract method")
+
+  @property
+  def output_size(self):
+    """Integer or TensorShape: size of outputs produced by this cell."""
+    raise NotImplementedError("Abstract method")
+
+  def zero_state(self, batch_size, dtype):
+    """Return zero-filled state tensor(s).
+    Args:
+      batch_size: int, float, or unit Tensor representing the batch size.
+      dtype: the data type to use for the state.
+    Returns:
+      If `state_size` is an int or TensorShape, then the return value is a
+      `N-D` tensor of shape `[batch_size x state_size]` filled with zeros.
+      If `state_size` is a nested list or tuple, then the return value is
+      a nested list or tuple (of the same structure) of `2-D` tensors with
+      the shapes `[batch_size x s]` for each s in `state_size`.
+    """
+    with ops.name_scope(type(self).__name__ + "ZeroState", values=[batch_size]):
+      state_size = self.state_size
+      return _zero_state_tensors(state_size, batch_size, dtype)
+
+
+class BasicRNNCell(RNNCell):
+  """The most basic RNN cell."""
+
+  def __init__(self, num_units, input_size=None, activation=tanh, reuse=None):
+    if input_size is not None:
+      logging.warn("%s: The input_size parameter is deprecated.", self)
+    self._num_units = num_units
+    self._activation = activation
+    self._reuse = reuse
+
+  @property
+  def state_size(self):
+    return self._num_units
+
+  @property
+  def output_size(self):
+    return self._num_units
+
+  def __call__(self, inputs, state, scope=None):
+    """Most basic RNN: output = new_state = act(W * input + U * state + B)."""
+    #with _checked_scope(self, scope or "basic_rnn_cell", reuse=self._reuse):
+    output = self._activation(_linear([inputs, state], self._num_units, True))
+    return output, output
+
+class MultiRNNCell(RNNCell):
+  """RNN cell composed sequentially of multiple simple cells."""
+
+  def __init__(self, cells, state_is_tuple=True):
+    """Create a RNN cell composed sequentially of a number of RNNCells.
+    Args:
+      cells: list of RNNCells that will be composed in this order.
+      state_is_tuple: If True, accepted and returned states are n-tuples, where
+        `n = len(cells)`.  If False, the states are all
+        concatenated along the column axis.  This latter behavior will soon be
+        deprecated.
+    Raises:
+      ValueError: if cells is empty (not allowed), or at least one of the cells
+        returns a state tuple but the flag `state_is_tuple` is `False`.
+    """
+    if not cells:
+      raise ValueError("Must specify at least one cell for MultiRNNCell.")
+    if not nest.is_sequence(cells):
+      raise TypeError(
+          "cells must be a list or tuple, but saw: %s." % cells)
+
+    self._cells = cells
+    self._state_is_tuple = state_is_tuple
+    if not state_is_tuple:
+      if any(nest.is_sequence(c.state_size) for c in self._cells):
+        raise ValueError("Some cells return tuples of states, but the flag "
+                         "state_is_tuple is not set.  State sizes are: %s"
+                         % str([c.state_size for c in self._cells]))
+
+  @property
+  def state_size(self):
+    if self._state_is_tuple:
+      return tuple(cell.state_size for cell in self._cells)
+    else:
+      return sum([cell.state_size for cell in self._cells])
+
+  @property
+  def output_size(self):
+    return self._cells[-1].output_size
+
+  def zero_state(self, batch_size, dtype):
+    with ops.name_scope(type(self).__name__ + "ZeroState", values=[batch_size]):
+      if self._state_is_tuple:
+        return tuple(cell.zero_state(batch_size, dtype) for cell in self._cells)
+      else:
+        # We know here that state_size of each cell is not a tuple and
+        # presumably does not contain TensorArrays or anything else fancy
+        return super(MultiRNNCell, self).zero_state(batch_size, dtype)
+
+  def __call__(self, inputs, state, scope=None):
+    """Run this multi-layer cell on inputs, starting from state."""
+    with vs.variable_scope(scope or "multi_rnn_cell"):
+      cur_state_pos = 0
+      cur_inp = inputs
+      new_states = []
+      for i, cell in enumerate(self._cells):
+        with vs.variable_scope("cell_%d" % i):
+          if self._state_is_tuple:
+            if not nest.is_sequence(state):
+              raise ValueError(
+                  "Expected state to be a tuple of length %d, but received: %s"
+                  % (len(self.state_size), state))
+            cur_state = state[i]
+          else:
+            cur_state = array_ops.slice(
+                state, [0, cur_state_pos], [-1, cell.state_size])
+            cur_state_pos += cell.state_size
+          cur_inp, new_state = cell(cur_inp, cur_state)
+          new_states.append(new_state)
+    new_states = (tuple(new_states) if self._state_is_tuple else
+                  array_ops.concat(new_states, 1))
+    return cur_inp, new_states
 
