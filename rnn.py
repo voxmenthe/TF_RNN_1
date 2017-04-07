@@ -24,7 +24,7 @@ from tensorflow.python.util import nest
 _state_size_with_prefix = rnn_cell_impl._state_size_with_prefix
 # pylint: enable=protected-access
 
-
+# copied _infer_state_dtype
 def _infer_state_dtype(explicit_dtype, state):
   """Infer the dtype of an RNN state.
 
@@ -371,7 +371,7 @@ def bidirectional_dynamic_rnn(cell_fw, cell_bw, inputs, sequence_length=None,
 
   return (outputs, output_states)
 
-
+# copied dynamic_rnn
 def dynamic_rnn(cell, inputs, sequence_length=None, initial_state=None,
                 dtype=None, parallel_iterations=None, swap_memory=False,
                 time_major=False, scope=None):
@@ -552,7 +552,7 @@ def dynamic_rnn(cell, inputs, sequence_length=None, initial_state=None,
 
     return (outputs, final_state)
 
-
+# copied _dynamic_rnn_loop
 def _dynamic_rnn_loop(cell,
                       inputs,
                       initial_state,

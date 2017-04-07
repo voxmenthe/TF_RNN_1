@@ -90,7 +90,7 @@ def _checked_scope(cell, scope, reuse=None, **kwargs):
     cell._scope = checking_scope  # pylint: disable=protected-access
     yield checking_scope
 
-
+# copied BasicRNNCell
 class BasicRNNCell(RNNCell):
   """The most basic RNN cell."""
 
@@ -111,9 +111,8 @@ class BasicRNNCell(RNNCell):
 
   def __call__(self, inputs, state, scope=None):
     """Most basic RNN: output = new_state = act(W * input + U * state + B)."""
-    with _checked_scope(self, scope or "basic_rnn_cell", reuse=self._reuse):
-      output = self._activation(
-          _linear([inputs, state], self._num_units, True))
+    #with _checked_scope(self, scope or "basic_rnn_cell", reuse=self._reuse):
+    output = self._activation(_linear([inputs, state], self._num_units, True))
     return output, output
 
 
@@ -843,7 +842,7 @@ class EmbeddingWrapper(RNNCell):
             embedding, array_ops.reshape(inputs, [-1]))
     return self._cell(embedded, state)
 
-
+# copied multirnncell
 class MultiRNNCell(RNNCell):
   """RNN cell composed sequentially of multiple simple cells."""
 
