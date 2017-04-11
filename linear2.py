@@ -1,4 +1,4 @@
-def _linear(args, output_size, bias, bias_start=0.0):
+def linear2(args, output_size, bias, bias_start=0.0):
   """Linear map: sum_i(args[i] * W[i]), where W[i] is a variable.
   Args:
     args: a 2D Tensor or a list of 2D, batch x n, Tensors.
@@ -31,20 +31,16 @@ def _linear(args, output_size, bias, bias_start=0.0):
   dtype = [a.dtype for a in args][0]
 
   # Now the computation.
-  scope = vs.get_variable_scope()
-  with vs.variable_scope(scope) as outer_scope:
-    weights = vs.get_variable(
-        _WEIGHTS_VARIABLE_NAME, [total_arg_size, output_size], dtype=dtype)
-    if len(args) == 1:
-      res = math_ops.matmul(args[0], weights)
-    else:
-      res = math_ops.matmul(array_ops.concat(args, 1), weights)
-    if not bias:
-      return res
-    with vs.variable_scope(outer_scope) as inner_scope:
-      inner_scope.set_partitioner(None)
-      biases = vs.get_variable(
-          _BIAS_VARIABLE_NAME, [output_size],
-          dtype=dtype,
-          initializer=init_ops.constant_initializer(bias_start, dtype=dtype))
-    return nn_ops.bias_add(res, biases)
+  weights = vs.get_variable(
+      _WEIGHTS_VARIABLE_NAME, [total_arg_size, output_size], dtype=dtype)
+  if len(args) == 1:
+    res = math_ops.matmul(args[0], weights)
+  else:
+    res = math_ops.matmul(array_ops.concat(args, 1), weights)
+  if not bias:
+    return res
+  biases = vs.get_variable(
+      _BIAS_VARIABLE_NAME, [output_size],
+      dtype=dtype,
+      initializer=init_ops.constant_initializer(bias_start, dtype=dtype))
+  return nn_ops.bias_add(res, biases)
