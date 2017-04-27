@@ -4,6 +4,10 @@ from tensorflow.python.util import nest
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import tensor_shape
 from tensorflow.python.ops import array_ops
+# from tf.contrib.rnn import RNNCell
+from tensorflow.python.ops.rnn_cell_impl import _RNNCell as RNNCell
+
+
 
 def _state_size_with_prefix(state_size, prefix=None):
   """Helper function that enables int or TensorShape shape specification.
@@ -39,7 +43,7 @@ def _zero_state_tensors(state_size, batch_size, dtype):
 
   return zeros
 
-class VanillaLSTMCell(object):
+class VanillaLSTMCell(RNNCell):
     def __init__(self, num_blocks):
         self._num_blocks = num_blocks
         
@@ -93,22 +97,95 @@ class VanillaLSTMCell(object):
             R_f = get_variable("R_f", [self.input_size, self._num_blocks])
             R_o = get_variable("R_o", [self.input_size, self._num_blocks])
             
-            b_z = get_variable("b_z", [self.input_size, self._num_blocks])
-            b_i = get_variable("b_i", [self.input_size, self._num_blocks])
-            b_f = get_variable("b_f", [self.input_size, self._num_blocks])
-            b_o = get_variable("b_o", [self.input_size, self._num_blocks])
-            
-            p_i = get_variable("p_i", [self.input_size, self._num_blocks])
-            p_f = get_variable("p_f", [self.input_size, self._num_blocks])
-            p_o = get_variable("p_o", [self.input_size, self._num_blocks])
+            b_z = get_variable("b_z", [1, self._num_blocks])
+            b_i = get_variable("b_i", [1, self._num_blocks])
+            b_f = get_variable("b_f", [1, self._num_blocks])
+            b_o = get_variable("b_o", [1, self._num_blocks])
+
+            p_i = get_variable("p_i", [self._num_blocks])
+            p_f = get_variable("p_f", [self._num_blocks])
+            p_o = get_variable("p_o", [self._num_blocks])
             
             # define each equation as operations in the graph
             # many have reversed inputs so that matmuls produce correct dimensionality
+            #print('inputs:',inputs,'W_z',W_z,'y_prev:',y_prev,'R_z',R_z,'b_z',b_z)
+            #pre_z1 = tf.matmul(inputs, W_z)
+            #pre_z2 = tf.matmul(y_prev, R_z)
+            #print(pre_z1,pre_z2,b_z)
             z = tf.tanh(tf.matmul(inputs, W_z) + tf.matmul(y_prev, R_z) + b_z)
-            i = tf.sigmoid(tf.matmul(inputs, W_i) + tf.matmul(y_prev, R_i) + tf.mul(c_prev, p_i) + b_i)
-            f = tf.sigmoid(tf.matmul(inputs, W_f) + tf.matmul(y_prev, R_f), + tf.mul(c_prev, p_f) + b_f)
-            c = tf.mul(i, z) + tf.mul(f, c_prev)
-            o = tf.sigmoid(tf.matmul(inputs, W_o) + tf.matmul(y_prev, R_o) + tf.mul(c, p_o) + b_o)
-            y = tf.mul(tf.tanh(c), o)
+            i = tf.sigmoid(tf.matmul(inputs, W_i) + tf.matmul(y_prev, R_i) + tf.multiply(c_prev, p_i) + b_i)
+            f = tf.sigmoid(tf.matmul(inputs, W_f) + tf.matmul(y_prev, R_f) + tf.multiply(c_prev, p_f) + b_f)
+            c = tf.multiply(i, z) + tf.multiply(f, c_prev)
+            o = tf.sigmoid(tf.matmul(inputs, W_o) + tf.matmul(y_prev, R_o) + tf.multiply(c, p_o) + b_o)
+            y = tf.multiply(tf.tanh(c), o)
             
             return y, tf.concat([c,y],1)
+
+
+
+
+
+
+# class RNNCell(object):
+#   """Abstract object representing an RNN cell.
+#   Every `RNNCell` must have the properties below and implement `__call__` with
+#   the following signature.
+#   This definition of cell differs from the definition used in the literature.
+#   In the literature, 'cell' refers to an object with a single scalar output.
+#   This definition refers to a horizontal array of such units.
+#   An RNN cell, in the most abstract setting, is anything that has
+#   a state and performs some operation that takes a matrix of inputs.
+#   This operation results in an output matrix with `self.output_size` columns.
+#   If `self.state_size` is an integer, this operation also results in a new
+#   state matrix with `self.state_size` columns.  If `self.state_size` is a
+#   tuple of integers, then it results in a tuple of `len(state_size)` state
+#   matrices, each with a column size corresponding to values in `state_size`.
+#   """
+
+#   def __call__(self, inputs, state, scope=None):
+#     """Run this RNN cell on inputs, starting from the given state.
+#     Args:
+#       inputs: `2-D` tensor with shape `[batch_size x input_size]`.
+#       state: if `self.state_size` is an integer, this should be a `2-D Tensor`
+#         with shape `[batch_size x self.state_size]`.  Otherwise, if
+#         `self.state_size` is a tuple of integers, this should be a tuple
+#         with shapes `[batch_size x s] for s in self.state_size`.
+#       scope: VariableScope for the created subgraph; defaults to class name.
+#     Returns:
+#       A pair containing:
+#       - Output: A `2-D` tensor with shape `[batch_size x self.output_size]`.
+#       - New state: Either a single `2-D` tensor, or a tuple of tensors matching
+#         the arity and shapes of `state`.
+#     """
+#     raise NotImplementedError("Abstract method")
+
+#   @property
+#   def state_size(self):
+#     """size(s) of state(s) used by this cell.
+#     It can be represented by an Integer, a TensorShape or a tuple of Integers
+#     or TensorShapes.
+#     """
+#     raise NotImplementedError("Abstract method")
+
+#   @property
+#   def output_size(self):
+#     """Integer or TensorShape: size of outputs produced by this cell."""
+#     raise NotImplementedError("Abstract method")
+
+#   def zero_state(self, batch_size, dtype):
+#     """Return zero-filled state tensor(s).
+#     Args:
+#       batch_size: int, float, or unit Tensor representing the batch size.
+#       dtype: the data type to use for the state.
+#     Returns:
+#       If `state_size` is an int or TensorShape, then the return value is a
+#       `N-D` tensor of shape `[batch_size x state_size]` filled with zeros.
+#       If `state_size` is a nested list or tuple, then the return value is
+#       a nested list or tuple (of the same structure) of `2-D` tensors with
+#       the shapes `[batch_size x s]` for each s in `state_size`.
+#     """
+#     with ops.name_scope(type(self).__name__ + "ZeroState", values=[batch_size]):
+#       state_size = self.state_size
+#       return _zero_state_tensors(state_size, batch_size, dtype)
+
+
