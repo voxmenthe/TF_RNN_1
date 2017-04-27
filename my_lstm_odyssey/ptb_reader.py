@@ -15,7 +15,9 @@ def _read_words(filename):
   with gfile.GFile(filename, "r") as f:
     # https://github.com/tensorflow/tensorflow/issues/4584
     # str(foo.read(), 'utf-8')
-    return str(f.read(), 'utf-8').replace("\n", "<eos>").split()
+    # return str(f.read(), 'utf-8').replace("\n", "<eos>").split()
+    return f.read().replace("\n", "<eos>").split()
+    # print("Hello")
 
 
 def _build_vocab(filename):
