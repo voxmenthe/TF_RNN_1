@@ -102,20 +102,6 @@ class MILSTMCell(RNNCell):
             b_f = get_variable("b_f", [1, self._num_blocks])
             b_o = get_variable("b_o", [1, self._num_blocks])
 
-            Alpha_z = get_variable("Alpha_z", [1, self._num_blocks])
-            Alpha_i = get_variable("Alpha_i", [1, self._num_blocks])
-            Alpha_f = get_variable("Alpha_f", [1, self._num_blocks])
-            Alpha_o = get_variable("Alpha_o", [1, self._num_blocks])
-
-            Beta1_z = get_variable("Beta1_z", [1, self._num_blocks])
-            Beta1_i = get_variable("Beta1_i", [1, self._num_blocks])
-            Beta1_f = get_variable("Beta1_f", [1, self._num_blocks])
-            Beta1_o = get_variable("Beta1_o", [1, self._num_blocks])
-
-            Beta2_z = get_variable("Beta2_z", [1, self._num_blocks])
-            Beta2_i = get_variable("Beta2_i", [1, self._num_blocks])
-            Beta2_f = get_variable("Beta2_f", [1, self._num_blocks])
-            Beta2_o = get_variable("Beta2_o", [1, self._num_blocks])
 
             p_i = get_variable("p_i", [self._num_blocks])
             p_f = get_variable("p_f", [self._num_blocks])
@@ -123,43 +109,32 @@ class MILSTMCell(RNNCell):
             
             # define each equation as operations in the graph
             # many have reversed inputs so that matmuls produce correct dimensionality
-            # for MI-RNN we are doing element-wise multiplication instead of adding,
-            # and also adding three different bias vectors, Alpha, Beta1, and Beta2
             
-            # z = tf.tanh(tf.matmul(inputs, W_z) + tf.matmul(y_prev, R_z) + b_z)
+            # for mLSTM we first need to define an intermediate state m_t
+            # first need to implement the W_hh_(xt) diagonal matrix among other things
 
-            W_z__x_t = tf.matmul(inputs, W_z)
-            R_z__y_prev = tf.matmul(y_prev, R_z)
-            z = tf.tanh(tf.multiply( tf.multiply(Alpha_z, W_z__x_t),R_z__y_prev) + tf.multiply(Beta1_z,R_z__y_prev) + tf.multiply(Beta2_z,W_z__x_t) + b_z)
-            
+            m_t = 0 # TO BE IMPLEMENTED
+
+            # AND THEN IN THE IMPLEMENTATIONS BELOW, I THINK ALL THE y_prev
+            # NEED TO BE REPLACED WITH m_t
+
+            # z = tf.tanh(tf.matmul(inputs, W_z) + tf.matmul(y_prev, R_z) + b_z)
+            z = tf.tanh(tf.matmul(inputs, W_z) + tf.matmul(m_t, R_z) + b_z)
+         
             # i = tf.sigmoid(tf.matmul(inputs, W_i) + tf.matmul(y_prev, R_i) + tf.multiply(c_prev, p_i) + b_i)
 
-            W_i__x_t = tf.matmul(inputs, W_i)
-            R_i__y_prev = tf.matmul(y_prev, W_i)
-            i = tf.sigmoid(tf.multiply(tf.multiply(Alpha_i, W_i__x_t), R_i__y_prev) + tf.multiply( Beta1_i, R_i__y_prev) + tf.multiply( Beta2_i, W_i__x_t) + b_i)
+            i = tf.sigmoid(tf.matmul(inputs, W_i) + tf.matmul(m_t, R_i) + tf.multiply(c_prev, p_i) + b_i)
+
 
             # f = tf.sigmoid(tf.matmul(inputs, W_f) + tf.matmul(y_prev, R_f) + tf.multiply(c_prev, p_f) + b_f)
 
-            W_f__x_t = tf.matmul(inputs, W_f)
-            R_f__y_prev = tf.matmul(y_prev, R_f)
-            f = tf.sigmoid(
-              tf.multiply(tf.multiply(Alpha_f, W_f__x_t), R_f__y_prev) +
-              tf.multiply( Beta1_f, R_f__y_prev) +
-              tf.multiply( Beta2_f, W_f__x_t) + b_f
-              )
+            f = tf.sigmoid(tf.matmul(inputs, W_f) + tf.matmul(m_t, R_f) + tf.multiply(c_prev, p_f) + b_f)
 
-            # c remains unchanged for MI-LSTM
+
+            # c remains unchanged for mLSTM ? ??????? not sure yet
             c = tf.multiply(i, z) + tf.multiply(f, c_prev)
 
-            # o = tf.sigmoid(tf.matmul(inputs, W_o) + tf.matmul(y_prev, R_o) + tf.multiply(c, p_o) + b_o)
-
-            W_o__x_t = tf.matmul(inputs, W_o)
-            R_o__y_prev = tf.matmul(y_prev, R_o)
-            o = tf.sigmoid(
-              tf.multiply(tf.multiply(Alpha_o, W_o__x_t), R_o__y_prev) +
-              tf.multiply( Beta1_o, R_o__y_prev) +
-              tf.multiply( Beta2_o, W_o__x_t) + b_o              
-              )
+            o = tf.sigmoid(tf.matmul(inputs, W_o) + tf.matmul(y_prev, R_o) + tf.multiply(c, p_o) + b_o)
 
             # changed in mLSTM:
             # y = tf.multiply(tf.tanh(c), o)
