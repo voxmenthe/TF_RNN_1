@@ -43,7 +43,7 @@ def _zero_state_tensors(state_size, batch_size, dtype):
 
   return zeros
 
-class MILSTMCell(RNNCell):
+class mLSTMCell(RNNCell):
     def __init__(self, num_blocks):
         self._num_blocks = num_blocks
         
