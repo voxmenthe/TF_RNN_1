@@ -7,8 +7,6 @@ from tensorflow.python.ops import array_ops
 # from tf.contrib.rnn import RNNCell
 from tensorflow.python.ops.rnn_cell_impl import _RNNCell as RNNCell
 
-
-
 def _state_size_with_prefix(state_size, prefix=None):
   """Helper function that enables int or TensorShape shape specification.
   This function takes a size specification, which can be an integer or a
@@ -43,7 +41,7 @@ def _zero_state_tensors(state_size, batch_size, dtype):
 
   return zeros
 
-class mLSTMCell(RNNCell):
+class MILSTMCell(RNNCell):
     def __init__(self, num_blocks):
         self._num_blocks = num_blocks
         
@@ -102,63 +100,66 @@ class mLSTMCell(RNNCell):
             b_f = get_variable("b_f", [1, self._num_blocks])
             b_o = get_variable("b_o", [1, self._num_blocks])
 
+            Alpha_z = get_variable("Alpha_z", [1, self._num_blocks])
+            Alpha_i = get_variable("Alpha_i", [1, self._num_blocks])
+            Alpha_f = get_variable("Alpha_f", [1, self._num_blocks])
+            Alpha_o = get_variable("Alpha_o", [1, self._num_blocks])
+
+            Beta1_z = get_variable("Beta1_z", [1, self._num_blocks])
+            Beta1_i = get_variable("Beta1_i", [1, self._num_blocks])
+            Beta1_f = get_variable("Beta1_f", [1, self._num_blocks])
+            Beta1_o = get_variable("Beta1_o", [1, self._num_blocks])
+
+            Beta2_z = get_variable("Beta2_z", [1, self._num_blocks])
+            Beta2_i = get_variable("Beta2_i", [1, self._num_blocks])
+            Beta2_f = get_variable("Beta2_f", [1, self._num_blocks])
+            Beta2_o = get_variable("Beta2_o", [1, self._num_blocks])
+
             p_i = get_variable("p_i", [self._num_blocks])
             p_f = get_variable("p_f", [self._num_blocks])
             p_o = get_variable("p_o", [self._num_blocks])
             
-            """ 
-            Define each equation as operations in the graph.
-            Many have reversed inputs so that matmuls produce correct dimensionality
+            # define each equation as operations in the graph
+            # many have reversed inputs so that matmuls produce correct dimensionality
+            # for MI-RNN we are doing element-wise multiplication instead of adding,
+            # and also adding three different bias vectors, Alpha, Beta1, and Beta2
             
-            For mLSTM we first need to define an intermediate state m_t
-            Need to implement the W_hh_(xt) diagonal matrix among other things
+            # z = tf.tanh(tf.matmul(inputs, W_z) + tf.matmul(y_prev, R_z) + b_z)
+
+            W_z__x_t = tf.matmul(inputs, W_z)
+            R_z__y_prev = tf.matmul(y_prev, R_z)
+            z = tf.tanh(tf.multiply( tf.multiply(Alpha_z, W_z__x_t),R_z__y_prev) + tf.multiply(Beta1_z,R_z__y_prev) + tf.multiply(Beta2_z,W_z__x_t) + b_z)
             
-            For the diagonal matrix thing, you don't actually need to create a diagonal matrix. Calculating the matrix diag(v)*W is the same as multiplying the i-th row of W by v_i. This can be done with the basic tensorflow multiply command that makes use of broadcasting (the use of broadcasting in tensorflow are the same as in NumPy). So, if W is an A x B matrix, to multiply the rows you would want to create an A x 1 vector v and calculate tf.multiply(W,v).
+            # i = tf.sigmoid(tf.matmul(inputs, W_i) + tf.matmul(y_prev, R_i) + tf.multiply(c_prev, p_i) + b_i)
 
-            Also, calculating the matrix W*diag(v) is the same as multiplying the i-th column of W by the i-th element of v and can be calculated by creating a 1 x B vector v and calculating tf.multiply(W,v). """
+            W_i__x_t = tf.matmul(inputs, W_i)
+            R_i__y_prev = tf.matmul(y_prev, W_i)
+            i = tf.sigmoid(tf.multiply(tf.multiply(Alpha_i, W_i__x_t), R_i__y_prev) + tf.multiply( Beta1_i, R_i__y_prev) + tf.multiply( Beta2_i, W_i__x_t) + b_i)
 
-            # Adding this for mLSTM
+            # f = tf.sigmoid(tf.matmul(inputs, W_f) + tf.matmul(y_prev, R_f) + tf.multiply(c_prev, p_f) + b_f)
 
-            # Create two new weight matrices to use for the intermediate matrix
-            # I am assuming that W_mx and W_mh are completely new weight 
-            # matrices added for mLSTM?
-            W_mx = get_variable("W_mx", [self.input_size, self._num_blocks])
-            W_mh = get_variable("W_mh", [self.input_size, self._num_blocks])
+            W_f__x_t = tf.matmul(inputs, W_f)
+            R_f__y_prev = tf.matmul(y_prev, R_f)
+            f = tf.sigmoid(
+              tf.multiply(tf.multiply(Alpha_f, W_f__x_t), R_f__y_prev) +
+              tf.multiply( Beta1_f, R_f__y_prev) +
+              tf.multiply( Beta2_f, W_f__x_t) + b_f
+              )
 
-            # Should this be tf.multiply or tf.matmul?
-            W_mx__x_t = tf.matmul(inputs, W_mx)
-            W_mh__y_prev = tf.matmul(y_prev,W_mh)
-
-            m_t = tf.multiply(W_mx__x_t,W_mh__y_prev)
-
-            # AND THEN IN THE IMPLEMENTATIONS BELOW, I THINK ALL THE y_prev
-            # NEED TO BE REPLACED WITH m_t
-
-            # original LSTM: z = tf.tanh(tf.matmul(inputs, W_z) + tf.matmul(y_prev, R_z) + b_z)
-            
-            # does the order of the arguments in matmul matter??? Yes, reversed because... ?
-            z = tf.tanh(tf.matmul(inputs, W_z) + tf.matmul(m_t,R_z) + b_z)
-         
-            # original LSTM: i = tf.sigmoid(tf.matmul(inputs, W_i) + tf.matmul(y_prev, R_i) + tf.multiply(c_prev, p_i) + b_i)
-
-            i = tf.sigmoid(tf.matmul(inputs, W_i) + tf.matmul(m_t, R_i) + tf.multiply(c_prev, p_i) + b_i)
-
-
-            # original LSTM: f = tf.sigmoid(tf.matmul(inputs, W_f) + tf.matmul(y_prev, R_f) + tf.multiply(c_prev, p_f) + b_f)
-
-            f = tf.sigmoid(tf.matmul(inputs, W_f) + tf.matmul(m_t, R_f) + tf.multiply(c_prev, p_f) + b_f)
-
-            # c remains unchanged for mLSTM ? I think so but not 100% sure yet
+            # c remains unchanged for MI-LSTM
             c = tf.multiply(i, z) + tf.multiply(f, c_prev)
 
-            # original LSTM: o = tf.sigmoid(tf.matmul(inputs, W_o) + tf.matmul(y_prev, R_o) + tf.multiply(c, p_o) + b_o)
+            # o = tf.sigmoid(tf.matmul(inputs, W_o) + tf.matmul(y_prev, R_o) + tf.multiply(c, p_o) + b_o)
 
-            o = tf.sigmoid(tf.matmul(inputs, W_o) + tf.matmul(m_t, R_o) + tf.multiply(c, p_o) + b_o)
+            W_o__x_t = tf.matmul(inputs, W_o)
+            R_o__y_prev = tf.matmul(y_prev, R_o)
+            o = tf.sigmoid(
+              tf.multiply(tf.multiply(Alpha_o, W_o__x_t), R_o__y_prev) +
+              tf.multiply( Beta1_o, R_o__y_prev) +
+              tf.multiply( Beta2_o, W_o__x_t) + b_o              
+              )
 
-            # changed in mLSTM:
-            # original: y = tf.multiply(tf.tanh(c), o)
-            y = tf.tanh(tf.multiply(c, o))
-
+            y = tf.multiply(tf.tanh(c), o)
             
             return y, tf.concat([c,y],1)
 
